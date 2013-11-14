@@ -156,6 +156,7 @@ CDVDDemuxFFmpeg::CDVDDemuxFFmpeg() : CDVDDemux()
   m_pkt.result = -1;
   memset(&m_pkt.pkt, 0, sizeof(AVPacket));
   m_streaminfo = true; /* set to true if we want to look for streams before playback */
+  m_checkvideo = false;
 }
 
 CDVDDemuxFFmpeg::~CDVDDemuxFFmpeg()
@@ -386,6 +387,12 @@ bool CDVDDemuxFFmpeg::Open(CDVDInputStream* pInput, bool streaminfo)
   if (iformat && (strcmp(iformat->name, "mjpeg") == 0) && m_ioContext->seekable == 0)
     m_pFormatContext->max_analyze_duration = 500000;
 
+  if (iformat && (strcmp(iformat->name, "mpegts") == 0))
+  {
+    m_pFormatContext->max_analyze_duration = 500000;
+    m_checkvideo = true;
+  }
+
   // we need to know if this is matroska or avi later
   m_bMatroska = strncmp(m_pFormatContext->iformat->name, "matroska", 8) == 0;	// for "matroska.webm"
   m_bAVI = strcmp(m_pFormatContext->iformat->name, "avi") == 0;
@@ -414,9 +421,18 @@ bool CDVDDemuxFFmpeg::Open(CDVDInputStream* pInput, bool streaminfo)
       }
     }
     CLog::Log(LOGDEBUG, "%s - av_find_stream_info finished", __FUNCTION__);
+
+    if (m_checkvideo)
+    {
+      // make sure we start video with an i-frame
+      ResetVideoStreams();
+    }
   }
   else
+  {
     m_program = 0;
+    m_checkvideo = true;
+  }
 
   // reset any timeout
   m_timeout.SetInfinite();
@@ -1475,7 +1491,7 @@ void CDVDDemuxFFmpeg::ParsePacket(AVPacket *pkt)
   }
 
   // for video we need a decoder to get desired information into codec context
-  if (st->codec->codec_type == AVMEDIA_TYPE_VIDEO &&
+  if (st->codec->codec_type == AVMEDIA_TYPE_VIDEO && st->codec->extradata &&
       (!st->codec->width || st->codec->pix_fmt == PIX_FMT_NONE))
   {
     // open a decoder, it will be cleared down by ffmpeg on closing the stream
@@ -1514,15 +1530,23 @@ void CDVDDemuxFFmpeg::ParsePacket(AVPacket *pkt)
 bool CDVDDemuxFFmpeg::IsVideoReady()
 {
   AVStream *st;
+  bool hasVideo = false;
+
+  if(!m_checkvideo)
+    return true;
+
   if(m_program != UINT_MAX)
   {
     for (unsigned int i = 0; i < m_pFormatContext->programs[m_program]->nb_stream_indexes; i++)
     {
       int idx = m_pFormatContext->programs[m_program]->stream_index[i];
       st = m_pFormatContext->streams[idx];
-      if (st->codec->codec_type == AVMEDIA_TYPE_VIDEO &&
-          (!st->codec->width || st->codec->pix_fmt == PIX_FMT_NONE))
-        return false;
+      if (st->codec->codec_type == AVMEDIA_TYPE_VIDEO)
+      {
+        if (st->codec->width && st->codec->pix_fmt != PIX_FMT_NONE)
+          return true;
+        hasVideo = true;
+      }
     }
   }
   else
@@ -1530,10 +1554,29 @@ bool CDVDDemuxFFmpeg::IsVideoReady()
     for (unsigned int i = 0; i < m_pFormatContext->nb_streams; i++)
     {
       st = m_pFormatContext->streams[i];
-      if (st->codec->codec_type == AVMEDIA_TYPE_VIDEO &&
-          (!st->codec->width || st->codec->pix_fmt == PIX_FMT_NONE))
-        return false;
+      if (st->codec->codec_type == AVMEDIA_TYPE_VIDEO)
+      {
+        if (st->codec->width && st->codec->pix_fmt != PIX_FMT_NONE)
+          return true;
+        hasVideo = true;
+      }
     }
   }
-  return true;
+  return !hasVideo;
+}
+
+void CDVDDemuxFFmpeg::ResetVideoStreams()
+{
+  AVStream *st;
+  for (unsigned int i = 0; i < m_pFormatContext->nb_streams; i++)
+  {
+    st = m_pFormatContext->streams[i];
+    if (st->codec->codec_type == AVMEDIA_TYPE_VIDEO)
+    {
+      if (st->codec->extradata)
+        av_free(st->codec->extradata);
+      st->codec->extradata = NULL;
+      st->codec->width = 0;
+    }
+  }
 }
