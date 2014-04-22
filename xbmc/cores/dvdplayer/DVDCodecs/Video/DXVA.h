@@ -64,9 +64,9 @@ public:
   bool  OpenDecoder();
   int   GetBuffer(AVCodecContext *avctx, AVFrame *pic, int flags);
   void  RelBuffer(uint8_t *data);
+  bool  ReInitDecoder(AVCodecContext* avctx, const enum PixelFormat, unsigned int surfaces);
 
   static bool      Supports(enum PixelFormat fmt);
-
 
 protected:
   enum EDeviceState

@@ -710,6 +710,25 @@ bool CDecoder::Open(AVCodecContext *avctx, enum PixelFormat fmt, unsigned int su
   return true;
 }
 
+bool CDecoder::ReInitDecoder(AVCodecContext* avctx, enum PixelFormat fmt, unsigned int surfaces)
+{
+  if (!m_decoder 
+	  || m_format.SampleWidth  != ALIGN(avctx->coded_width)
+	  || m_format.SampleHeight != ALIGN(avctx->coded_height))
+  {
+    CLog::Log(LOGERROR, __FUNCTION__" - no DXVA2 decoder or image dimensions changed -> re-allocating resources");
+
+    if (!Open(avctx, fmt, surfaces))
+    {
+      CLog::Log(LOGERROR, __FUNCTION__" - decoder was not able to reinit");
+      Close();
+      return false;
+    }
+  }
+
+  return true;
+}
+
 int CDecoder::Decode(AVCodecContext* avctx, AVFrame* frame)
 {
   CSingleLock lock(m_section);
@@ -724,7 +743,7 @@ int CDecoder::Decode(AVCodecContext* avctx, AVFrame* frame)
       if(m_buffer[i].surface == (IDirect3DSurface9*)frame->data[3])
         return VC_BUFFER | VC_PICTURE;
     }
-    CLog::Log(LOGWARNING, "DXVA - ignoring invalid surface");
+    CLog::Log(LOGWARNING, __FUNCTION__" - ignoring invalid surface");
     return VC_BUFFER;
   }
   else
@@ -765,10 +784,8 @@ int CDecoder::Check(AVCodecContext* avctx)
   if(m_format.SampleWidth  == 0
   || m_format.SampleHeight == 0)
   {
-    if(!Open(avctx, avctx->pix_fmt, m_shared))
+    if(!ReInitDecoder(avctx, avctx->pix_fmt, m_shared))
     {
-      CLog::Log(LOGERROR, "CDecoder::Check - decoder was not able to reset");
-      Close();
       return VC_ERROR;
     }
     return VC_FLUSHED;
@@ -895,20 +912,11 @@ void CDecoder::RelBuffer(uint8_t *data)
 int CDecoder::GetBuffer(AVCodecContext *avctx, AVFrame *pic, int flags)
 {
   CSingleLock lock(m_section);
-  if(ALIGN(avctx->coded_width)  != m_format.SampleWidth
-  || ALIGN(avctx->coded_height) != m_format.SampleHeight)
-  {
-    CLog::Log(LOGDEBUG, "CDecoder::GetBuffer - need reopen DXVA decoder (%ix%i -> %ix%i)"
-                        , m_format.SampleWidth
-                        , m_format.SampleHeight
-                        , avctx->coded_width
-                        , avctx->coded_height);
-    if(!Open(avctx, avctx->pix_fmt, m_shared))
-    {
-      Close();
-      return -1;
-    }
+
+  if(!ReInitDecoder(avctx, avctx->pix_fmt, m_shared)){
+    return -1;
   }
+
   unsigned int i;
   int old, old_unused;
   for (i = 0, old = 0, old_unused = -1; i < m_buffer_count; i++) {
