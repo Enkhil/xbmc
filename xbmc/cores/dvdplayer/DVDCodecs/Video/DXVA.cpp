@@ -320,6 +320,9 @@ static const dxva2_deinterlacetech_t *dxva2_find_deinterlacetech(unsigned flags)
 
 #define SCOPE(type, var) boost::shared_ptr<type> var##_holder(var, CoTaskMemFree);
 
+#undef ALIGN
+#define ALIGN(x) (((x)+15)&~15)
+
 CSurfaceContext::CSurfaceContext()
 {
 }
@@ -537,8 +540,8 @@ bool CDecoder::Open(AVCodecContext *avctx, enum PixelFormat fmt, unsigned int su
     return false;
   }
 
-  m_format.SampleWidth  = avctx->coded_width;
-  m_format.SampleHeight = avctx->coded_height;
+  m_format.SampleWidth  = ALIGN(avctx->coded_width);
+  m_format.SampleHeight = ALIGN(avctx->coded_height);
   m_format.SampleFormat.SampleFormat           = DXVA2_SampleProgressiveFrame;
   m_format.SampleFormat.VideoLighting          = DXVA2_VideoLighting_dim;
 
@@ -838,8 +841,8 @@ bool CDecoder::OpenDecoder()
   {
     CLog::Log(LOGDEBUG, "DXVA - allocating %d surfaces", m_context->surface_count - m_buffer_count);
 
-    CHECK(m_service->CreateSurface( (m_format.SampleWidth  + 15) & ~15
-                                  , (m_format.SampleHeight + 15) & ~15
+    CHECK(m_service->CreateSurface( m_format.SampleWidth
+                                  , m_format.SampleHeight
                                   , m_context->surface_count - 1 - m_buffer_count
                                   , m_format.Format
                                   , D3DPOOL_DEFAULT
@@ -892,10 +895,14 @@ void CDecoder::RelBuffer(uint8_t *data)
 int CDecoder::GetBuffer(AVCodecContext *avctx, AVFrame *pic, int flags)
 {
   CSingleLock lock(m_section);
-  if(avctx->coded_width  != m_format.SampleWidth
-  || avctx->coded_height != m_format.SampleHeight)
+  if(ALIGN(avctx->coded_width)  != m_format.SampleWidth
+  || ALIGN(avctx->coded_height) != m_format.SampleHeight)
   {
-    Close();
+    CLog::Log(LOGDEBUG, "CDecoder::GetBuffer - need reopen DXVA decoder (%ix%i -> %ix%i)"
+                        , m_format.SampleWidth
+                        , m_format.SampleHeight
+                        , avctx->coded_width
+                        , avctx->coded_height);
     if(!Open(avctx, avctx->pix_fmt, m_shared))
     {
       Close();
