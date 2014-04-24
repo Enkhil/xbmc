@@ -110,6 +110,8 @@ protected:
 
   CCriticalSection             m_section;
   CEvent                       m_event;
+  unsigned                     m_uSurfaceWidth;
+  unsigned                     m_uSurfaceHeight;
 };
 
 class CProcessor

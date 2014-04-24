@@ -361,19 +361,21 @@ CDecoder::CDecoder()
  : m_event(true)
 {
   m_event.Set();
-  m_state     = DXVA_OPEN;
-  m_service   = NULL;
-  m_device    = NULL;
-  m_decoder   = NULL;
-  m_buffer_count = 0;
-  m_buffer_age   = 0;
-  m_refs         = 0;
-  m_shared       = 0;
-  m_surface_context = NULL;
-  memset(&m_format, 0, sizeof(m_format));
+  m_state            = DXVA_OPEN;
+  m_service          = NULL;
+  m_device           = NULL;
+  m_decoder          = NULL;
+  m_buffer_count     = 0;
+  m_buffer_age       = 0;
+  m_refs             = 0;
+  m_shared           = 0;
+  m_uSurfaceWidth    = 0;
+  m_uSurfaceHeight   = 0;
+  m_surface_context  = NULL;
   m_context          = (dxva_context*)calloc(1, sizeof(dxva_context));
   m_context->cfg     = (DXVA2_ConfigPictureDecode*)calloc(1, sizeof(DXVA2_ConfigPictureDecode));
   m_context->surface = (IDirect3DSurface9**)calloc(m_buffer_max, sizeof(IDirect3DSurface9*));
+  memset(&m_format, 0, sizeof(m_format));
   g_Windowing.Register(this);
 }
 
@@ -396,6 +398,8 @@ void CDecoder::Close()
     m_buffer[i].Clear();
   m_buffer_count = 0;
   memset(&m_format, 0, sizeof(m_format));
+  m_uSurfaceWidth    = 0;
+  m_uSurfaceHeight   = 0;
 }
 
 #define CHECK(a) \
@@ -540,8 +544,8 @@ bool CDecoder::Open(AVCodecContext *avctx, enum PixelFormat fmt, unsigned int su
     return false;
   }
 
-  m_format.SampleWidth  = ALIGN(avctx->coded_width);
-  m_format.SampleHeight = ALIGN(avctx->coded_height);
+  m_format.SampleWidth  = avctx->coded_width;
+  m_format.SampleHeight = avctx->coded_height;
   m_format.SampleFormat.SampleFormat           = DXVA2_SampleProgressiveFrame;
   m_format.SampleFormat.VideoLighting          = DXVA2_VideoLighting_dim;
 
@@ -681,6 +685,8 @@ bool CDecoder::Open(AVCodecContext *avctx, enum PixelFormat fmt, unsigned int su
   *const_cast<DXVA2_ConfigPictureDecode*>(m_context->cfg) = config;
 
   m_surface_context = new CSurfaceContext();
+  m_uSurfaceWidth  = ALIGN(avctx->coded_width);
+  m_uSurfaceHeight = ALIGN(avctx->coded_height);
 
   if(!OpenDecoder())
     return false;
@@ -713,8 +719,8 @@ bool CDecoder::Open(AVCodecContext *avctx, enum PixelFormat fmt, unsigned int su
 bool CDecoder::ReInitDecoder(AVCodecContext* avctx, enum PixelFormat fmt, unsigned int surfaces)
 {
   if (!m_decoder 
-	  || m_format.SampleWidth  != ALIGN(avctx->coded_width)
-	  || m_format.SampleHeight != ALIGN(avctx->coded_height))
+	  || m_uSurfaceWidth  != ALIGN(avctx->coded_width)
+	  || m_uSurfaceHeight != ALIGN(avctx->coded_height))
   {
     CLog::Log(LOGERROR, __FUNCTION__" - no DXVA2 decoder or image dimensions changed -> re-allocating resources");
 
@@ -781,8 +787,8 @@ int CDecoder::Check(AVCodecContext* avctx)
     }
   }
 
-  if(m_format.SampleWidth  == 0
-  || m_format.SampleHeight == 0)
+  if(m_uSurfaceWidth  == 0
+  || m_uSurfaceHeight == 0)
   {
     if(!ReInitDecoder(avctx, avctx->pix_fmt, m_shared))
     {
@@ -858,8 +864,8 @@ bool CDecoder::OpenDecoder()
   {
     CLog::Log(LOGDEBUG, "DXVA - allocating %d surfaces", m_context->surface_count - m_buffer_count);
 
-    CHECK(m_service->CreateSurface( m_format.SampleWidth
-                                  , m_format.SampleHeight
+    CHECK(m_service->CreateSurface( m_uSurfaceWidth
+                                  , m_uSurfaceHeight
                                   , m_context->surface_count - 1 - m_buffer_count
                                   , m_format.Format
                                   , D3DPOOL_DEFAULT
