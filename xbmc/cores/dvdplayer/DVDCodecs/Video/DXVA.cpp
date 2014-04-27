@@ -873,10 +873,14 @@ bool CDecoder::OpenDecoder()
                                   , DXVA2_VideoDecoderRenderTarget
                                   , m_context->surface + m_buffer_count, NULL ));
 
+    IDirect3DDevice9* pDev = (IDirect3DDevice9*) g_Windowing.Get3DDevice();
     for(unsigned i = m_buffer_count; i < m_context->surface_count; i++)
     {
       m_buffer[i].surface = m_context->surface[i];
       m_surface_context->HoldSurface(m_context->surface[i]);
+
+      // fill the surface in black, to avoid the "green screen" in case the first frame fails to decode.
+      if (pDev) pDev->ColorFill(m_context->surface[i], NULL, D3DCOLOR_XYUV(0, 128, 128));
     }
 
     m_buffer_count = m_context->surface_count;
